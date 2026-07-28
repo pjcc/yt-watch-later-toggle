@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Watch Later Toggle",
+  "version": "1.0.0",
+  "description": "One-click add/remove the current video from your Watch Later playlist",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
