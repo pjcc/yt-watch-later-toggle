@@ -38,6 +38,15 @@
   background: #cc0000;
 }
 
+#wl-toggle-btn[data-state="retry"] {
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffb3b3;
+}
+
+#wl-toggle-btn[data-state="retry"]:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
 #wl-toggle-btn[hidden] {
   display: none;
 }

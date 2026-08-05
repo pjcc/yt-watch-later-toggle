@@ -6,8 +6,16 @@
   const ORIGIN = 'https://www.youtube.com';
   const BTN_ID = 'wl-toggle-btn';
 
+  // Watch Later can be long, so the id set is cached rather than re-listed on
+  // every SPA navigation; toggles patch the cache so it stays correct in between.
+  const WL_CACHE_TTL = 5 * 60 * 1000;
+  const WL_MAX_PAGES = 20; // ~2000 videos, then we stop paging
+
   let inFlight = false;
   let refreshSeq = 0;
+  let wlIds = null;
+  let wlIdsAt = 0;
+  let wlIdsPromise = null;
 
   // ---------- helpers ----------
 
@@ -68,21 +76,51 @@
     return res.json();
   };
 
-  // Same call the native Save dialog makes; the WL entry carries membership state.
-  const isInWatchLater = async (videoId) => {
-    const data = await innertube('playlist/get_add_to_playlist', { videoIds: [videoId] });
-    const playlists = data?.contents?.[0]?.addToPlaylistRenderer?.playlists ?? [];
-    const wl = playlists
-      .map((p) => p.playlistAddToOptionRenderer)
-      .find((p) => p && p.playlistId === 'WL');
-    console.debug(
-      `[wl-toggle] ${videoId}: WL=${wl ? wl.containsSelectedVideos : 'MISSING'}`,
-      `authuser=${cfg('SESSION_INDEX') || '0'}`,
-      `pageId=${cfg('DELEGATED_SESSION_ID') || 'none'}`,
-      `playlists=${playlists.length}`,
-    );
-    if (!wl) throw new Error('WL playlist missing from get_add_to_playlist response');
-    return wl.containsSelectedVideos !== 'NONE';
+  // Membership has to come from listing WL itself. The obvious candidate,
+  // playlist/get_add_to_playlist, is a dead end: it reports Watch Later under a
+  // per-account playlist id rather than the 'WL' alias, and - the reason it is
+  // unusable - its containsSelectedVideos is always 'NONE' for WL, even for
+  // videos demonstrably in the playlist. Reading it gave a button that could
+  // never show the "already saved" state.
+  const listWatchLaterIds = async () => {
+    const ids = new Set();
+    let token = null;
+
+    for (let page = 0; page < WL_MAX_PAGES; page++) {
+      const data = await innertube('browse', token ? { continuation: token } : { browseId: 'VLWL' });
+      token = null;
+      (function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        const vid = node.playlistVideoRenderer?.videoId;
+        if (vid) ids.add(vid);
+        const next = node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+        if (next) token = next;
+        for (const key in node) walk(node[key]);
+      })(data);
+      if (!token) break;
+    }
+    return ids;
+  };
+
+  const watchLaterIds = () => {
+    if (wlIds && Date.now() - wlIdsAt < WL_CACHE_TTL) return Promise.resolve(wlIds);
+    if (!wlIdsPromise) {
+      wlIdsPromise = listWatchLaterIds()
+        .then((ids) => {
+          wlIds = ids;
+          wlIdsAt = Date.now();
+          console.debug(
+            `[wl-toggle] listed ${ids.size} Watch Later videos`,
+            `authuser=${cfg('SESSION_INDEX') || '0'}`,
+            `pageId=${cfg('DELEGATED_SESSION_ID') || 'none'}`,
+          );
+          return ids;
+        })
+        .finally(() => {
+          wlIdsPromise = null;
+        });
+    }
+    return wlIdsPromise;
   };
 
   const editWatchLater = (videoId, add) =>
@@ -141,11 +179,15 @@
     const videoId = getVideoId();
     if (!videoId) return;
 
-    const wasIn = getButton().dataset.state === 'in';
+    const btn = getButton();
+    if (btn.dataset.state === 'retry') return refresh();
+
+    const wasIn = btn.dataset.state === 'in';
     inFlight = true;
     render(!wasIn); // optimistic
     try {
       await editWatchLater(videoId, !wasIn);
+      if (wlIds) wasIn ? wlIds.delete(videoId) : wlIds.add(videoId);
     } catch (err) {
       console.warn('[wl-toggle] edit failed:', err);
       render(wasIn); // revert
@@ -164,13 +206,15 @@
     const seq = ++refreshSeq;
     setState('loading', 'Watch Later…');
     try {
-      const inWL = await isInWatchLater(videoId);
+      const ids = await watchLaterIds();
       if (seq !== refreshSeq || getVideoId() !== videoId) return; // navigated away mid-check
-      render(inWL);
+      render(ids.has(videoId));
     } catch (err) {
       if (seq !== refreshSeq) return;
       console.warn('[wl-toggle] state check failed:', err);
-      hide();
+      // Hiding here is what made this look like the button "flashing and
+      // vanishing" - leave it visible and clickable so a failure can be retried.
+      setState('retry', '⟳ Watch Later');
     }
   }
 
