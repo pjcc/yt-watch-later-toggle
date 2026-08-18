@@ -31,6 +31,15 @@ There is nothing to build, install, or transpile. Edits to `content.js` / `style
 
 **Button states** live entirely in `data-state` on `#wl-toggle-btn`, with each state's appearance in `styles.css`: `out`, `in`, `loading`, `error` (transient, 2s), `retry`. The `retry` state exists because hiding the button on a failed state check read as the button flashing and vanishing; keep failures visible and clickable rather than reverting to `hide()`.
 
+**The widget is page-aware and rebuilt by mode.** `getPage()` returns `watch`, `subs` (`/feed/subscriptions`), `wl` (`/playlist?list=WL`) or null, and `build(mode)` produces either the toggle button with a hover-revealed link strip or, on the two link-only pages, a single always-visible tile pointing at the other page. `mount()` rebuilds only when the mode changes, so navigating between watch pages leaves the button alone. The link-only pages return from `refresh()` before any InnerTube call.
+
+**Two non-obvious layout choices in the hover strip:**
+
+- `#wl-toggle-links` is absolutely positioned and `pointer-events: none` while collapsed, so the widget's hit area stays exactly button-sized and never blocks the page. The gap to the first tile is `padding-top` *inside* the strip, so it stays hoverable once expanded - do not turn it into a margin
+- Reveal keys off `#wl-toggle-wrap:has(:focus-visible)`, not `:focus-within`. The latter stays true after a mouse click and pinned the strip open; the anchors also blur themselves on `click` and `auxclick`. Needs Chrome 105+ for `:has()`
+
+Tiles are real `<a href>` elements with no click handler, so middle-click and ctrl-click open a new tab natively. The widget is appended to `documentElement`, outside `ytd-app`, so YouTube's SPA router does not intercept those navigations - keep it there.
+
 ## Conventions
 
 - Vanilla ES2020+ in a single IIFE, no frameworks, no bundler. Keep it that way unless asked
