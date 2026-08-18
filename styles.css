@@ -1,8 +1,21 @@
-#wl-toggle-btn {
+#wl-toggle-wrap {
   position: fixed;
   top: 64px;
   right: 16px;
   z-index: 10000;
+  width: 152px;
+}
+
+#wl-toggle-wrap[hidden] {
+  display: none;
+}
+
+/* The button and the two link tiles share one look and one width. */
+#wl-toggle-btn,
+.wl-toggle-link {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
   padding: 8px 14px;
   border: none;
   border-radius: 18px;
@@ -10,6 +23,11 @@
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   background: rgba(0, 0, 0, 0.75);
   color: #fff;
@@ -19,6 +37,18 @@
 
 #wl-toggle-btn:hover {
   background: rgba(0, 0, 0, 0.9);
+}
+
+/* Tiles lighten rather than darken, so the one under the cursor reads
+   differently from the button above it. */
+.wl-toggle-link:hover,
+.wl-toggle-link:focus-visible {
+  background: rgba(58, 58, 58, 0.96);
+  color: #fff;
+}
+
+.wl-toggle-link:active {
+  background: rgba(30, 30, 30, 0.96);
 }
 
 #wl-toggle-btn[data-state="in"] {
@@ -47,6 +77,31 @@
   background: rgba(0, 0, 0, 0.85);
 }
 
-#wl-toggle-btn[hidden] {
-  display: none;
+/* Absolutely positioned so the collapsed widget stays button-sized and never
+   blocks the page; the padding-top is the hoverable gap to the first tile. */
+#wl-toggle-links {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+}
+
+/* :has(:focus-visible), not :focus-within - the latter stays true after a mouse
+   click and pinned the strip open until focus moved elsewhere. */
+#wl-toggle-wrap:hover #wl-toggle-links,
+#wl-toggle-wrap:has(:focus-visible) #wl-toggle-links {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
