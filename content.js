@@ -128,10 +128,14 @@
         .then((ids) => {
           wlIds = ids;
           wlIdsAt = Date.now();
+          // The brand-account id is what makes this log useful when the wrong
+          // Watch Later comes back, but it is also an account identifier on
+          // screen in any console screenshot, so log only whether one is in
+          // play rather than its value.
           console.debug(
             `[wl-toggle] listed ${ids.size} Watch Later videos`,
             `authuser=${cfg('SESSION_INDEX') || '0'}`,
-            `pageId=${cfg('DELEGATED_SESSION_ID') || 'none'}`,
+            `brandAccount=${cfg('DELEGATED_SESSION_ID') ? 'yes' : 'no'}`,
           );
           return ids;
         })
