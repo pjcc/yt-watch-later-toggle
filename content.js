@@ -4,7 +4,17 @@
   'use strict';
 
   const ORIGIN = 'https://www.youtube.com';
+  const WRAP_ID = 'wl-toggle-wrap';
   const BTN_ID = 'wl-toggle-btn';
+  const LINKS_ID = 'wl-toggle-links';
+
+  const LINK_PLAYLIST = { href: 'https://www.youtube.com/playlist?list=WL', text: 'Playlist' };
+  const LINK_SUBS = { href: 'https://www.youtube.com/feed/subscriptions', text: 'Subscriptions' };
+
+  // The three pages the widget appears on, and nothing else.
+  const WATCH = 'watch';
+  const SUBS = 'subs';
+  const WL_PAGE = 'wl';
 
   // Watch Later can be long, so the id set is cached rather than re-listed on
   // every SPA navigation; toggles patch the cache so it stays correct in between.
@@ -23,6 +33,15 @@
     location.pathname === '/watch'
       ? new URLSearchParams(location.search).get('v')
       : null;
+
+  const getPage = () => {
+    if (location.pathname === '/watch') return WATCH;
+    if (location.pathname === '/feed/subscriptions') return SUBS;
+    // Only the Watch Later playlist itself - other playlists get no widget.
+    if (location.pathname === '/playlist' &&
+        new URLSearchParams(location.search).get('list') === 'WL') return WL_PAGE;
+    return null;
+  };
 
   const cfg = (key) =>
     window.ytcfg && typeof window.ytcfg.get === 'function'
@@ -133,37 +152,84 @@
       ],
     });
 
-  // ---------- button ----------
+  // ---------- widget ----------
 
-  const getButton = () => {
-    let btn = document.getElementById(BTN_ID);
-    if (!btn) {
-      btn = document.createElement('button');
+  const makeLink = ({ href, text }) => {
+    const a = document.createElement('a');
+    a.className = 'wl-toggle-link';
+    a.href = href; // real href, so middle-click and ctrl-click open a new tab
+    a.textContent = text;
+    // Clicking a tile (middle-click especially, which opens a background tab and
+    // leaves this page focused) parks focus on the anchor, which would pin the
+    // strip open until something else took focus. Drop it so hover alone drives.
+    const dropFocus = () => a.blur();
+    a.addEventListener('click', dropFocus);
+    a.addEventListener('auxclick', dropFocus);
+    return a;
+  };
+
+  // On a watch page the widget is the toggle button, with both links in an
+  // absolutely positioned strip revealed on hover - so the collapsed widget
+  // covers no more of the page than the button itself. On the Watch Later
+  // playlist and the Subscriptions feed there is no video to toggle, so it is
+  // just the one always-visible tile pointing at the other page.
+  const build = (mode) => {
+    const wrap = document.createElement('div');
+    wrap.id = WRAP_ID;
+    wrap.dataset.mode = mode;
+
+    if (mode === WATCH) {
+      const btn = document.createElement('button');
       btn.id = BTN_ID;
       btn.type = 'button';
       btn.addEventListener('click', onClick);
-      document.documentElement.appendChild(btn);
+      wrap.appendChild(btn);
+
+      const links = document.createElement('div');
+      links.id = LINKS_ID;
+      links.append(makeLink(LINK_PLAYLIST), makeLink(LINK_SUBS));
+      wrap.appendChild(links);
+    } else if (mode === SUBS) {
+      // 'WL Playlist' here, not just 'Playlist': with no toggle button above it
+      // for context, the bare label does not say which playlist it means.
+      wrap.appendChild(makeLink({ ...LINK_PLAYLIST, text: 'WL Playlist' }));
+    } else {
+      wrap.appendChild(makeLink(LINK_SUBS));
     }
-    return btn;
+
+    document.documentElement.appendChild(wrap);
+    return wrap;
+  };
+
+  // Rebuilds only when the page kind changes, so SPA navigation between two
+  // watch pages leaves the button in place.
+  const mount = (mode) => {
+    const existing = document.getElementById(WRAP_ID);
+    if (existing && existing.dataset.mode === mode) {
+      existing.hidden = false;
+      return existing;
+    }
+    if (existing) existing.remove();
+    return build(mode);
   };
 
   const setState = (state, text) => {
-    const btn = getButton();
+    mount(WATCH);
+    const btn = document.getElementById(BTN_ID);
     btn.dataset.state = state;
     btn.textContent = text;
-    btn.hidden = false;
   };
 
   const render = (inWL) =>
     setState(inWL ? 'in' : 'out', inWL ? '✓ In Watch Later' : '+ Watch Later');
 
   const hide = () => {
-    const btn = document.getElementById(BTN_ID);
-    if (btn) btn.hidden = true;
+    const wrap = document.getElementById(WRAP_ID);
+    if (wrap) wrap.hidden = true;
   };
 
   const flashError = () => {
-    const btn = getButton();
+    const btn = document.getElementById(BTN_ID);
     const prev = { state: btn.dataset.state, text: btn.textContent };
     setState('error', 'Failed - try again');
     setTimeout(() => {
@@ -179,7 +245,7 @@
     const videoId = getVideoId();
     if (!videoId) return;
 
-    const btn = getButton();
+    const btn = document.getElementById(BTN_ID);
     if (btn.dataset.state === 'retry') return refresh();
 
     const wasIn = btn.dataset.state === 'in';
@@ -198,6 +264,17 @@
   }
 
   async function refresh() {
+    const page = getPage();
+    if (!page) {
+      hide();
+      return;
+    }
+    // Nothing to look up on the link-only pages - mount and we are done.
+    if (page !== WATCH) {
+      mount(page);
+      return;
+    }
+
     const videoId = getVideoId();
     if (!videoId || cfg('LOGGED_IN') === false || !getSapisid()) {
       hide();
@@ -210,7 +287,7 @@
       if (seq !== refreshSeq || getVideoId() !== videoId) return; // navigated away mid-check
       render(ids.has(videoId));
     } catch (err) {
-      if (seq !== refreshSeq) return;
+      if (seq !== refreshSeq || getVideoId() !== videoId) return;
       console.warn('[wl-toggle] state check failed:', err);
       // Hiding here is what made this look like the button "flashing and
       // vanishing" - leave it visible and clickable so a failure can be retried.
