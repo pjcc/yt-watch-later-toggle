@@ -9,10 +9,11 @@
   const LINKS_ID = 'wl-toggle-links';
   const CARD_BTN_ID = 'wl-card-btn';
 
-  // Inset from the thumbnail's top-left corner. Top-left is the only free
-  // corner: YouTube puts mute and captions top-right, the duration badge
-  // bottom-right, and its own hover clock top-right on the layouts that have one.
-  const CARD_INSET = 8;
+  // The button covers the left half of the thumbnail, full height. A small
+  // corner target was too easy to lose against a playing preview; this stays
+  // findable without hunting, and keeps clear of the mute and captions controls
+  // the preview player puts top-right.
+  const CARD_COVER = 0.5;
   // Floor for what counts as a thumbnail. YouTube's smallest real one is about
   // 100x56 in the compact sidebar, and nothing legitimate is under this.
   const CARD_MIN_W = 80;
@@ -43,6 +44,7 @@
   // The card button that follows the pointer, and what it is currently showing.
   let cardAnchor = null;
   let cardVideoId = null;
+  let cardRect = null;
   let cardSeq = 0;
   let cardFrame = 0;
 
@@ -405,15 +407,24 @@
 
   const placeCard = () => {
     const btn = document.getElementById(CARD_BTN_ID);
-    if (!btn || !cardAnchor) return;
-    const rect = cardAnchor.getBoundingClientRect();
-    if (!rect.width || !rect.height) {
-      hideCard();
-      return;
+    if (!btn || !cardRect) return;
+    if (cardAnchor && cardAnchor.isConnected) {
+      const live = cardAnchor.getBoundingClientRect();
+      // While the inline preview mounts, the anchor can briefly measure zero.
+      // Keep the last good rect rather than throwing the button away over it.
+      if (live.width && live.height) cardRect = live;
     }
-    btn.style.top = `${rect.top + CARD_INSET}px`;
-    btn.style.left = `${rect.left + CARD_INSET}px`;
+    btn.style.top = `${cardRect.top}px`;
+    btn.style.left = `${cardRect.left}px`;
+    btn.style.width = `${Math.round(cardRect.width * CARD_COVER)}px`;
+    btn.style.height = `${Math.round(cardRect.height)}px`;
+    btn.style.fontSize = `${Math.max(18, Math.round(cardRect.height * 0.3))}px`;
   };
+
+  const withinCard = (x, y) =>
+    !!cardRect &&
+    x >= cardRect.left && x <= cardRect.right &&
+    y >= cardRect.top && y <= cardRect.bottom;
 
   const queuePlace = () => {
     if (cardFrame) return;
@@ -431,6 +442,7 @@
     if (btn) btn.hidden = true;
     cardAnchor = null;
     cardVideoId = null;
+    cardRect = null;
     cardSeq++;
   };
 
@@ -466,6 +478,7 @@
 
     cardAnchor = anchor;
     cardVideoId = videoId;
+    cardRect = anchor.getBoundingClientRect();
     const seq = ++cardSeq;
     cardButton().hidden = false;
     placeCard();
@@ -518,15 +531,36 @@
   document.addEventListener('pointerover', (e) => {
     const anchor = thumbAnchor(e.target);
     if (anchor) {
-      if (anchor !== cardAnchor) onCardEnter(anchor);
+      if (anchor === cardAnchor) return;
+      // Starting the preview re-renders the card, so the anchor element changes
+      // identity while still pointing at the same video. Re-entering would
+      // restart the state check and flash the button; adopt the new element and
+      // keep what is already on screen.
+      if (cardVideoId && idFromHref(anchor.href) === cardVideoId) {
+        cardAnchor = anchor;
+        placeCard();
+        return;
+      }
+      onCardEnter(anchor);
       return;
     }
+    if (!cardAnchor) return;
     // Moving onto the button itself is not leaving the card - it sits over the
     // thumbnail, so hiding here would make it unclickable.
     const btn = document.getElementById(CARD_BTN_ID);
     if (btn && !btn.hidden && (e.target === btn || btn.contains(e.target))) return;
+    // Leaving is decided by where the pointer is, not by what it is over.
+    // Hovering a card starts YouTube's inline preview player, which replaces
+    // the thumbnail's contents - and those nodes do not resolve back to the
+    // anchor, so an ancestry test hid the button the instant the preview began.
+    // That was the flash: shown on hover, hidden a moment later by the preview.
+    if (withinCard(e.clientX, e.clientY)) return;
     hideCard();
   }, true);
+
+  // The pointer can leave the card without entering anything else - out of the
+  // window, or into a native control - and no pointerover would follow.
+  document.addEventListener('pointerleave', () => hideCard());
 
   // Capture again: the feed scrolls in a container, not on window.
   window.addEventListener('scroll', queuePlace, true);

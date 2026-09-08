@@ -30,7 +30,7 @@ Chrome extension for Watch Later. A button top-right of every YouTube watch page
 | `Failed - try again` (red) | last toggle failed, state reverted |
 | `Watch Later` (dimmed, red text) | state check failed - click to retry |
 
-The card button carries the same states in miniature, top-left of the thumbnail on hover:
+The card button carries the same states, covering the left half of the thumbnail on hover:
 
 | Card button | Meaning |
 |---|---|
@@ -39,6 +39,8 @@ The card button carries the same states in miniature, top-left of the thumbnail 
 | `…` (dimmed) | checking, first hover only while the id cache warms |
 | `!` (red) | last toggle failed, state reverted |
 | `⟳` (dimmed, red text) | state check failed - click to retry |
+
+It is drawn as a gradient rather than a flat fill so the preview underneath stays watchable, and the right half of the thumbnail is left clear so clicking through to the video still works.
 
 ## Links
 
