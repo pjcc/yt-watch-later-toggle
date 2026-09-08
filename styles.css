@@ -113,3 +113,65 @@
   transform: translateY(0);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
+
+/* ---------- card overlay ---------- */
+
+/* One fixed button that follows the pointer from card to card. Fixed and
+   outside ytd-app, so it paints over YouTube's inline preview player without
+   competing with it for stacking order inside the feed's own DOM. */
+#wl-card-btn {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+#wl-card-btn[hidden] {
+  display: none;
+}
+
+#wl-card-btn:hover {
+  background: rgba(0, 0, 0, 0.92);
+  transform: scale(1.1);
+}
+
+/* Same state colours as the watch-page button, so the two read as one thing. */
+#wl-card-btn[data-state="in"] {
+  background: #2ba640;
+}
+
+#wl-card-btn[data-state="in"]:hover {
+  background: #249038;
+}
+
+#wl-card-btn[data-state="loading"] {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+#wl-card-btn[data-state="error"] {
+  background: #cc0000;
+}
+
+#wl-card-btn[data-state="retry"] {
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffb3b3;
+}
