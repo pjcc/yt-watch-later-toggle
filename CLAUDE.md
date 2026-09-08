@@ -31,7 +31,7 @@ There is nothing to build, install, or transpile. Edits to `content.js` / `style
 
 **Button states** live entirely in `data-state` on `#wl-toggle-btn`, with each state's appearance in `styles.css`: `out`, `in`, `loading`, `error` (transient, 2s), `retry`. The `retry` state exists because hiding the button on a failed state check read as the button flashing and vanishing; keep failures visible and clickable rather than reverting to `hide()`.
 
-**The widget is page-aware and rebuilt by mode.** `getPage()` returns `watch`, `subs` (`/feed/subscriptions`), `wl` (`/playlist?list=WL`) or null, and `build(mode)` produces either the toggle button with a hover-revealed link strip or, on the two link-only pages, a single always-visible tile pointing at the other page. `mount()` rebuilds only when the mode changes, so navigating between watch pages leaves the button alone. The link-only pages return from `refresh()` before any InnerTube call.
+**The widget is page-aware and rebuilt by mode.** `getPage()` returns `watch`, `subs` (`/feed/subscriptions`), `wl` (`/playlist?list=WL`), `other` for anything else, or null for `/embed/*` only. `build(mode)` produces the toggle button with a hover-revealed link strip on `watch`; a single always-visible tile pointing at the other page on `subs` and `wl`; and both tiles stacked, always visible, on `other`. `mount()` rebuilds only when the mode changes, so navigating between watch pages leaves the button alone. Every mode but `watch` returns from `refresh()` before any InnerTube call, so the catch-all costs nothing. `hide()` is still reachable - `/embed/*`, and the watch page when logged out or without a video id.
 
 **Two non-obvious layout choices in the hover strip:**
 

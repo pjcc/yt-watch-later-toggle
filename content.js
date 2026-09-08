@@ -11,10 +11,11 @@
   const LINK_PLAYLIST = { href: 'https://www.youtube.com/playlist?list=WL', text: 'Playlist' };
   const LINK_SUBS = { href: 'https://www.youtube.com/feed/subscriptions', text: 'Subscriptions' };
 
-  // The three pages the widget appears on, and nothing else.
+  // The three pages with a bespoke widget, plus the catch-all everywhere else.
   const WATCH = 'watch';
   const SUBS = 'subs';
   const WL_PAGE = 'wl';
+  const OTHER = 'other';
 
   // Watch Later can be long, so the id set is cached rather than re-listed on
   // every SPA navigation; toggles patch the cache so it stays correct in between.
@@ -40,7 +41,11 @@
     // Only the Watch Later playlist itself - other playlists get no widget.
     if (location.pathname === '/playlist' &&
         new URLSearchParams(location.search).get('list') === 'WL') return WL_PAGE;
-    return null;
+    // The one page that still gets nothing: a fixed-position widget pinned
+    // inside a small embedded player on somebody else's site is intrusive, and
+    // neither link is any use from there anyway.
+    if (location.pathname.startsWith('/embed/')) return null;
+    return OTHER;
   };
 
   const cfg = (key) =>
@@ -176,7 +181,9 @@
   // absolutely positioned strip revealed on hover - so the collapsed widget
   // covers no more of the page than the button itself. On the Watch Later
   // playlist and the Subscriptions feed there is no video to toggle, so it is
-  // just the one always-visible tile pointing at the other page.
+  // just the one always-visible tile pointing at the other page. Everywhere
+  // else both tiles show at once: there is nothing to toggle and no button to
+  // hover, so hiding them behind a reveal would leave nothing to aim at.
   const build = (mode) => {
     const wrap = document.createElement('div');
     wrap.id = WRAP_ID;
@@ -197,8 +204,13 @@
       // 'WL Playlist' here, not just 'Playlist': with no toggle button above it
       // for context, the bare label does not say which playlist it means.
       wrap.appendChild(makeLink({ ...LINK_PLAYLIST, text: 'WL Playlist' }));
-    } else {
+    } else if (mode === WL_PAGE) {
       wrap.appendChild(makeLink(LINK_SUBS));
+    } else {
+      wrap.append(
+        makeLink({ ...LINK_PLAYLIST, text: 'WL Playlist' }),
+        makeLink(LINK_SUBS),
+      );
     }
 
     document.documentElement.appendChild(wrap);

@@ -10,6 +10,14 @@
   display: none;
 }
 
+/* Off the three bespoke pages both tiles show at once, stacked on the same 6px
+   rhythm the watch page's hover strip uses. */
+#wl-toggle-wrap[data-mode="other"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* The button and the two link tiles share one look and one width. */
 #wl-toggle-btn,
 .wl-toggle-link {
