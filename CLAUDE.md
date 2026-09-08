@@ -27,7 +27,7 @@ There is nothing to build, install, or transpile. Edits to `content.js` / `style
 
 **Toggling** uses `POST /youtubei/v1/browse/edit_playlist` against `playlistId: 'WL'` with `ACTION_ADD_VIDEO` / `ACTION_REMOVE_VIDEO_BY_VIDEO_ID`. The UI updates optimistically and reverts on failure.
 
-**SPA handling.** `refresh()` runs once at injection and on every `yt-navigate-finish`. `refreshSeq` guards against a stale in-flight check rendering after the user has navigated on.
+**SPA handling.** `refresh()` runs once at injection and on every `yt-navigate-finish`. `refreshSeq` guards against a stale in-flight check rendering after the user has navigated on, and the click path has the matching guard: `onClick` only reverts on failure while `getVideoId()` still matches, and `setState` refuses to run off a watch page. Without those, a toggle that failed after navigation called `mount(WATCH)` and rebuilt the button over a link-only page's tile, or unhid it on a page the widget never belongs on.
 
 **Button states** live entirely in `data-state` on `#wl-toggle-btn`, with each state's appearance in `styles.css`: `out`, `in`, `loading`, `error` (transient, 2s), `retry`. The `retry` state exists because hiding the button on a failed state check read as the button flashing and vanishing; keep failures visible and clickable rather than reverting to `hide()`.
 
