@@ -217,7 +217,11 @@
     return build(mode);
   };
 
+  // A toggle that resolves after the user has navigated away must not drag the
+  // button back onto the new page: mount(WATCH) would rebuild it over a
+  // link-only page's tile, or unhide it on a page the widget never belongs on.
   const setState = (state, text) => {
+    if (getPage() !== WATCH) return;
     mount(WATCH);
     const btn = document.getElementById(BTN_ID);
     btn.dataset.state = state;
@@ -233,7 +237,9 @@
   };
 
   const flashError = () => {
+    // No button once setState has declined to rebuild it off a watch page.
     const btn = document.getElementById(BTN_ID);
+    if (!btn) return;
     const prev = { state: btn.dataset.state, text: btn.textContent };
     setState('error', 'Failed - try again');
     setTimeout(() => {
@@ -260,8 +266,12 @@
       if (wlIds) wasIn ? wlIds.delete(videoId) : wlIds.add(videoId);
     } catch (err) {
       console.warn('[wl-toggle] edit failed:', err);
-      render(wasIn); // revert
-      flashError();
+      // Same guard as refresh(): a failure that lands after the user has moved
+      // on must not write video A's state onto video B's button.
+      if (getVideoId() === videoId) {
+        render(wasIn); // revert
+        flashError();
+      }
     } finally {
       inFlight = false;
     }
