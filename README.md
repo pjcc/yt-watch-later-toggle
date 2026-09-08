@@ -1,6 +1,6 @@
 # Watch Later Toggle
 
-Chrome extension: a single button, top-right of every YouTube watch page, that adds or removes the current video from your Watch Later playlist. Detects membership on load and shows the correct state. Hovering it reveals quick links to the Watch Later playlist and the Subscriptions feed, and those two pages each get a tile linking to the other.
+Chrome extension: a single button, top-right of every YouTube watch page, that adds or removes the current video from your Watch Later playlist. Detects membership on load and shows the correct state. Hovering it reveals quick links to the Watch Later playlist and the Subscriptions feed; those two pages each get a tile linking to the other, and every other YouTube page gets both.
 
 ## Install
 
@@ -15,7 +15,7 @@ Chrome extension: a single button, top-right of every YouTube watch page, that a
 - Toggle: `POST /youtubei/v1/browse/edit_playlist` with `ACTION_ADD_VIDEO` / `ACTION_REMOVE_VIDEO_BY_VIDEO_ID` against playlist `WL`
 - Auth: the page's own cookies plus a `SAPISIDHASH` Authorization header; API key and client context read from `window.ytcfg`
 - SPA-aware: re-rendered on every `yt-navigate-finish` event; hidden when logged out
-- Page-aware: on a watch page hovering the button drops down two same-sized link tiles - Playlist, then Subscriptions. On the Watch Later playlist and the Subscriptions feed there is no video to toggle, so the widget is just the one tile linking to the other page. Every other page gets nothing
+- Page-aware: on a watch page hovering the button drops down two same-sized link tiles - Playlist, then Subscriptions. On the Watch Later playlist and the Subscriptions feed there is no video to toggle, so the widget is just the one tile linking to the other page. Everywhere else - home, channels, search, Shorts - both tiles show at once, with no hover needed. Embedded players are the one exception and get nothing
 - The tiles are real anchors, so middle-click and ctrl-click open them in a new tab
 
 ## States
@@ -35,6 +35,8 @@ Chrome extension: a single button, top-right of every YouTube watch page, that a
 | `/watch` | toggle button; hover reveals `Playlist` then `Subscriptions` |
 | `/playlist?list=WL` | a single `Subscriptions` tile |
 | `/feed/subscriptions` | a single `WL Playlist` tile |
+| any other page | `WL Playlist` and `Subscriptions`, both always visible |
+| `/embed/*` | nothing |
 
 Middle-click or ctrl-click a tile to open it in a new tab. On watch pages the tiles are hidden and click-through until hovered, so they never block the page.
 
