@@ -113,3 +113,64 @@
   transform: translateY(0);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
+
+/* ---------- card overlay ---------- */
+
+/* One fixed button that follows the pointer from card to card. Fixed and
+   outside ytd-app, so it paints over YouTube's inline preview player without
+   competing with it for stacking order inside the feed's own DOM.
+   Width, height and font-size are set inline - they scale with the thumbnail. */
+#wl-card-btn {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0;
+  border: none;
+  /* Matches the 12px corner radius YouTube gives its thumbnails. */
+  border-radius: 12px 0 0 12px;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  color: #fff;
+  /* A gradient rather than a flat fill: the button covers half the thumbnail,
+     so the preview underneath has to stay watchable through it. */
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+  transition: background 0.15s ease;
+}
+
+#wl-card-btn[hidden] {
+  display: none;
+}
+
+#wl-card-btn:hover {
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.08));
+}
+
+/* Same state colours as the watch-page button, so the two read as one thing. */
+#wl-card-btn[data-state="in"] {
+  background: linear-gradient(to right, rgba(43, 166, 64, 0.85), rgba(43, 166, 64, 0));
+}
+
+#wl-card-btn[data-state="in"]:hover {
+  background: linear-gradient(to right, rgba(36, 144, 56, 0.95), rgba(36, 144, 56, 0.1));
+}
+
+#wl-card-btn[data-state="loading"] {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+#wl-card-btn[data-state="error"] {
+  background: linear-gradient(to right, rgba(204, 0, 0, 0.88), rgba(204, 0, 0, 0));
+}
+
+#wl-card-btn[data-state="retry"] {
+  color: #ffb3b3;
+}

@@ -7,6 +7,17 @@
   const WRAP_ID = 'wl-toggle-wrap';
   const BTN_ID = 'wl-toggle-btn';
   const LINKS_ID = 'wl-toggle-links';
+  const CARD_BTN_ID = 'wl-card-btn';
+
+  // The button covers the left half of the thumbnail, full height. A small
+  // corner target was too easy to lose against a playing preview; this stays
+  // findable without hunting, and keeps clear of the mute and captions controls
+  // the preview player puts top-right.
+  const CARD_COVER = 0.5;
+  // Floor for what counts as a thumbnail. YouTube's smallest real one is about
+  // 100x56 in the compact sidebar, and nothing legitimate is under this.
+  const CARD_MIN_W = 80;
+  const CARD_MIN_H = 45;
 
   const LINK_PLAYLIST = { href: 'https://www.youtube.com/playlist?list=WL', text: 'Playlist' };
   const LINK_SUBS = { href: 'https://www.youtube.com/feed/subscriptions', text: 'Subscriptions' };
@@ -20,13 +31,22 @@
   // Watch Later can be long, so the id set is cached rather than re-listed on
   // every SPA navigation; toggles patch the cache so it stays correct in between.
   const WL_CACHE_TTL = 5 * 60 * 1000;
-  const WL_MAX_PAGES = 20; // ~2000 videos, then we stop paging
+  // Raised from 20 when the card buttons landed. One wrong 'not saved' on a
+  // watch page is a single button; across a grid of forty cards it is obvious.
+  const WL_MAX_PAGES = 50; // ~5000 videos, then we stop paging
 
   let inFlight = false;
   let refreshSeq = 0;
   let wlIds = null;
   let wlIdsAt = 0;
   let wlIdsPromise = null;
+
+  // The card button that follows the pointer, and what it is currently showing.
+  let cardAnchor = null;
+  let cardVideoId = null;
+  let cardRect = null;
+  let cardSeq = 0;
+  let cardFrame = 0;
 
   // ---------- helpers ----------
 
@@ -122,6 +142,15 @@
         for (const key in node) walk(node[key]);
       })(data);
       if (!token) break;
+    }
+    // Stopping with a continuation token still outstanding means the set is
+    // incomplete, so 'not in the set' no longer means 'not in Watch Later'.
+    // Say so in the console rather than silently mislabelling buttons.
+    if (token) {
+      console.warn(
+        `[wl-toggle] stopped listing Watch Later at ${WL_MAX_PAGES} pages (${ids.size} videos);`,
+        'anything past that will show as not saved',
+      );
     }
     return ids;
   };
@@ -321,7 +350,226 @@
     }
   }
 
+  // ---------- card overlay ----------
+
+  // One button that follows the pointer from card to card, rather than one
+  // injected into every card. It is appended to documentElement alongside the
+  // main widget, which keeps three things true that per-card injection would
+  // cost: nothing is injected inside ytd-app, so YouTube reshuffling its
+  // renderers cannot break us; nothing has to be re-decorated when YouTube
+  // recycles a card element with a different video on scroll; and being fixed
+  // and outside ytd-app it paints over the inline preview player by z-index
+  // alone, instead of fighting for stacking order as a sibling of it.
+  // The price is repositioning on scroll, which is what queuePlace() is for.
+
+  // Keyed off the href, not a renderer tag name: YouTube is midway through
+  // replacing ytd-*-renderer with yt-lockup-view-model, and both generations
+  // put the video id on the thumbnail's own anchor. The image test is what
+  // separates that anchor from the title anchor beside it, which points at the
+  // same video but is too small and too text-shaped to hang a button off.
+  //
+  // The size floor is not belt-and-braces. A watch page carries a dozen anchors
+  // that pass the image test while being invisible: description links
+  // (ytAttributedStringLink) wrap an img, and collapsed sidebar thumbnails keep
+  // theirs in the DOM at zero size. Measuring is the only thing that separates a
+  // thumbnail you can point at from markup that merely looks like one.
+  const thumbAnchor = (target) => {
+    if (!(target instanceof Element)) return null;
+    const a = target.closest('a[href*="/watch?v="]');
+    if (!a) return null;
+    if (a.id !== 'thumbnail' && !a.querySelector('img, yt-image, ytd-thumbnail')) return null;
+    const rect = a.getBoundingClientRect();
+    if (rect.width < CARD_MIN_W || rect.height < CARD_MIN_H) return null;
+    return a;
+  };
+
+  const idFromHref = (href) => {
+    try {
+      return new URL(href, ORIGIN).searchParams.get('v');
+    } catch {
+      return null;
+    }
+  };
+
+  const cardButton = () => {
+    let btn = document.getElementById(CARD_BTN_ID);
+    if (btn) return btn;
+    btn = document.createElement('button');
+    btn.id = CARD_BTN_ID;
+    btn.type = 'button';
+    btn.hidden = true;
+    // The button is outside ytd-app, so a click on it never reaches the card
+    // anchor underneath and there is no navigation to suppress.
+    btn.addEventListener('click', onCardClick);
+    document.documentElement.appendChild(btn);
+    return btn;
+  };
+
+  const placeCard = () => {
+    const btn = document.getElementById(CARD_BTN_ID);
+    if (!btn || !cardRect) return;
+    if (cardAnchor && cardAnchor.isConnected) {
+      const live = cardAnchor.getBoundingClientRect();
+      // While the inline preview mounts, the anchor can briefly measure zero.
+      // Keep the last good rect rather than throwing the button away over it.
+      if (live.width && live.height) cardRect = live;
+    }
+    btn.style.top = `${cardRect.top}px`;
+    btn.style.left = `${cardRect.left}px`;
+    btn.style.width = `${Math.round(cardRect.width * CARD_COVER)}px`;
+    btn.style.height = `${Math.round(cardRect.height)}px`;
+    btn.style.fontSize = `${Math.max(18, Math.round(cardRect.height * 0.3))}px`;
+  };
+
+  const withinCard = (x, y) =>
+    !!cardRect &&
+    x >= cardRect.left && x <= cardRect.right &&
+    y >= cardRect.top && y <= cardRect.bottom;
+
+  const queuePlace = () => {
+    if (cardFrame) return;
+    cardFrame = requestAnimationFrame(() => {
+      cardFrame = 0;
+      placeCard();
+    });
+  };
+
+  // Bumping the sequence is what makes hiding safe: an edit or a state check
+  // that resolves after the pointer has moved on finds a stale seq and writes
+  // nothing, so card A's result can never land on card B's button.
+  const hideCard = () => {
+    const btn = document.getElementById(CARD_BTN_ID);
+    if (btn) btn.hidden = true;
+    cardAnchor = null;
+    cardVideoId = null;
+    cardRect = null;
+    cardSeq++;
+  };
+
+  const setCardState = (state, label, title) => {
+    const btn = document.getElementById(CARD_BTN_ID);
+    if (!btn) return;
+    btn.dataset.state = state;
+    btn.textContent = label;
+    btn.title = title;
+  };
+
+  const renderCard = (inWL) =>
+    inWL
+      ? setCardState('in', '\u2713', 'In Watch Later - click to remove')
+      : setCardState('out', '+', 'Add to Watch Later');
+
+  const flashCardError = (revertTo) => {
+    setCardState('error', '!', 'Failed - try again');
+    setTimeout(() => {
+      const btn = document.getElementById(CARD_BTN_ID);
+      if (btn && btn.dataset.state === 'error') renderCard(revertTo);
+    }, 2000);
+  };
+
+  async function onCardEnter(anchor) {
+    const videoId = idFromHref(anchor.href);
+    // Same three preconditions as the watch button: a video, a session, and a
+    // page the widget belongs on (getPage() is null only inside an embed).
+    if (!videoId || !getPage() || cfg('LOGGED_IN') === false || !getSapisid()) {
+      hideCard();
+      return;
+    }
+
+    cardAnchor = anchor;
+    cardVideoId = videoId;
+    cardRect = anchor.getBoundingClientRect();
+    const seq = ++cardSeq;
+    cardButton().hidden = false;
+    placeCard();
+
+    // A warm cache is the normal case, and answering synchronously avoids a
+    // loading state that would flicker on every card the pointer crosses.
+    if (wlIds && Date.now() - wlIdsAt < WL_CACHE_TTL) {
+      renderCard(wlIds.has(videoId));
+      return;
+    }
+    setCardState('loading', '\u2026', 'Checking Watch Later\u2026');
+    try {
+      const ids = await watchLaterIds();
+      if (seq !== cardSeq) return;
+      renderCard(ids.has(videoId));
+    } catch (err) {
+      if (seq !== cardSeq) return;
+      console.warn('[wl-toggle] card state check failed:', err);
+      setCardState('retry', '\u27f3', 'State check failed - click to retry');
+    }
+  }
+
+  async function onCardClick() {
+    const btn = document.getElementById(CARD_BTN_ID);
+    const videoId = cardVideoId;
+    const anchor = cardAnchor;
+    if (!btn || !videoId || !anchor) return;
+    if (btn.dataset.state === 'loading') return;
+    if (btn.dataset.state === 'retry') return onCardEnter(anchor);
+
+    const wasIn = btn.dataset.state === 'in';
+    const seq = cardSeq;
+    renderCard(!wasIn); // optimistic
+    try {
+      await editWatchLater(videoId, !wasIn);
+      // Patch the cache whatever the pointer has done since - the edit landed,
+      // and the next card to ask about this video should hear about it.
+      if (wlIds) wasIn ? wlIds.delete(videoId) : wlIds.add(videoId);
+      // Keep the two buttons agreeing when they are showing the same video.
+      if (getVideoId() === videoId) render(!wasIn);
+    } catch (err) {
+      console.warn('[wl-toggle] card edit failed:', err);
+      if (seq !== cardSeq) return; // pointer moved on, nothing left to revert
+      renderCard(wasIn);
+      flashCardError(wasIn);
+    }
+  }
+
+  // Capture phase, because YouTube stops propagation on some of its own cards.
+  document.addEventListener('pointerover', (e) => {
+    const anchor = thumbAnchor(e.target);
+    if (anchor) {
+      if (anchor === cardAnchor) return;
+      // Starting the preview re-renders the card, so the anchor element changes
+      // identity while still pointing at the same video. Re-entering would
+      // restart the state check and flash the button; adopt the new element and
+      // keep what is already on screen.
+      if (cardVideoId && idFromHref(anchor.href) === cardVideoId) {
+        cardAnchor = anchor;
+        placeCard();
+        return;
+      }
+      onCardEnter(anchor);
+      return;
+    }
+    if (!cardAnchor) return;
+    // Moving onto the button itself is not leaving the card - it sits over the
+    // thumbnail, so hiding here would make it unclickable.
+    const btn = document.getElementById(CARD_BTN_ID);
+    if (btn && !btn.hidden && (e.target === btn || btn.contains(e.target))) return;
+    // Leaving is decided by where the pointer is, not by what it is over.
+    // Hovering a card starts YouTube's inline preview player, which replaces
+    // the thumbnail's contents - and those nodes do not resolve back to the
+    // anchor, so an ancestry test hid the button the instant the preview began.
+    // That was the flash: shown on hover, hidden a moment later by the preview.
+    if (withinCard(e.clientX, e.clientY)) return;
+    hideCard();
+  }, true);
+
+  // The pointer can leave the card without entering anything else - out of the
+  // window, or into a native control - and no pointerover would follow.
+  document.addEventListener('pointerleave', () => hideCard());
+
+  // Capture again: the feed scrolls in a container, not on window.
+  window.addEventListener('scroll', queuePlace, true);
+  window.addEventListener('resize', queuePlace);
+
   // YouTube is a SPA - full page loads are rare, this event fires on every navigation.
-  window.addEventListener('yt-navigate-finish', refresh);
+  window.addEventListener('yt-navigate-finish', () => {
+    hideCard();
+    refresh();
+  });
   refresh();
 })();
