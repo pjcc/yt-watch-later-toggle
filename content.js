@@ -26,14 +26,31 @@
   const CARD_MIN_W = 80;
   const CARD_MIN_H = 45;
 
-  const LINK_PLAYLIST = { href: `${ORIGIN}/playlist?list=WL`, text: 'Playlist' };
-  const LINK_SUBS = { href: `${ORIGIN}/feed/subscriptions`, text: 'Subscriptions' };
-  const LINK_HISTORY = { href: `${ORIGIN}/feed/history`, text: 'History' };
+  // Tile icons as 24x24 SVG path data: `line` paths are stroked, `solid` ones
+  // filled. Each is a different shape, not a variation on one, so they stay
+  // distinguishable at 14px - Watch Later and History are both clocks in
+  // YouTube's own set, which is exactly the confusion this avoids.
+  const ICONS = {
+    // A list with a play triangle: the queue.
+    playlist: { line: ['M3 6h14', 'M3 12h14', 'M3 18h8'], solid: ['M15 14v7l5.5-3.5z'] },
+    // Stacked screens: a feed of channels.
+    subs: {
+      line: ['M7 3h10', 'M5 6h14', 'M5 9h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z'],
+      solid: ['M10 12.5v5l4.5-2.5z'],
+    },
+    // Clock hands inside an anticlockwise arrow: going back.
+    history: { line: ['M3 12a9 9 0 1 0 2.64-6.36L3 8', 'M3 3v5h5', 'M12 7v5l4 2'], solid: [] },
+  };
 
-  // The three pages with a bespoke widget, plus the catch-all everywhere else.
+  const LINK_PLAYLIST = { href: `${ORIGIN}/playlist?list=WL`, text: 'Playlist', icon: ICONS.playlist };
+  const LINK_SUBS = { href: `${ORIGIN}/feed/subscriptions`, text: 'Subscriptions', icon: ICONS.subs };
+  const LINK_HISTORY = { href: `${ORIGIN}/feed/history`, text: 'History', icon: ICONS.history };
+
+  // The pages with a bespoke widget, plus the catch-all everywhere else.
   const WATCH = 'watch';
   const SUBS = 'subs';
   const WL_PAGE = 'wl';
+  const HOME = 'home';
   const OTHER = 'other';
 
   // The tiles each mode shows, top to bottom. A page never links to itself.
@@ -43,6 +60,7 @@
     [WATCH]: [LINK_PLAYLIST, LINK_SUBS, LINK_HISTORY],
     [SUBS]: [LINK_PLAYLIST, LINK_HISTORY],
     [WL_PAGE]: [LINK_SUBS, LINK_HISTORY],
+    [HOME]: [LINK_PLAYLIST, LINK_SUBS, LINK_HISTORY],
     [OTHER]: [LINK_PLAYLIST, LINK_SUBS],
   };
 
@@ -79,7 +97,8 @@
   const getPage = () => {
     if (location.pathname === '/watch') return WATCH;
     if (location.pathname === '/feed/subscriptions') return SUBS;
-    // Only the Watch Later playlist itself - other playlists get no widget.
+    if (location.pathname === '/') return HOME;
+    // Only the Watch Later playlist itself - other playlists get the catch-all.
     if (location.pathname === '/playlist' &&
         new URLSearchParams(location.search).get('list') === 'WL') return WL_PAGE;
     // The one page that still gets nothing: a fixed-position widget pinned
@@ -231,11 +250,33 @@
 
   // ---------- widget ----------
 
-  const makeLink = ({ href, text }) => {
+  // Built node by node rather than from an SVG string: YouTube enforces Trusted
+  // Types, so assigning markup through innerHTML throws in the MAIN world.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const makeIcon = ({ line, solid }) => {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'wl-toggle-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const d of [...line, ...solid]) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      if (solid.includes(d)) path.setAttribute('class', 'wl-toggle-icon-solid');
+      svg.appendChild(path);
+    }
+    return svg;
+  };
+
+  const makeLink = ({ href, text, icon }) => {
     const a = document.createElement('a');
     a.className = 'wl-toggle-link';
     a.href = href; // real href, so middle-click and ctrl-click open a new tab
-    a.textContent = text;
+    // The label sits in its own span so it can still ellipsise: the tile is a
+    // flex row now, and text-overflow does not apply to a bare text node there.
+    const label = document.createElement('span');
+    label.className = 'wl-toggle-label';
+    label.textContent = text;
+    a.append(makeIcon(icon), label);
     // Clicking a tile (middle-click especially, which opens a background tab and
     // leaves this page focused) parks focus on the anchor, which would pin the
     // strip open until something else took focus. Drop it so hover alone drives.

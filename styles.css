@@ -45,6 +45,36 @@
   transition: background 0.15s ease;
 }
 
+/* Tiles are an icon-plus-label row, centred as a group. Declared after the
+   shared rule so its display wins for tiles only. */
+.wl-toggle-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.wl-toggle-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wl-toggle-icon .wl-toggle-icon-solid {
+  fill: currentColor;
+}
+
+/* The ellipsis lives here because a flex item's bare text cannot carry one. */
+.wl-toggle-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 #wl-toggle-btn:hover {
   background: rgba(0, 0, 0, 0.9);
 }

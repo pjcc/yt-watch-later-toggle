@@ -1,6 +1,6 @@
 # Watch Later Toggle
 
-Chrome extension for Watch Later. A button top-right of every YouTube watch page adds or removes the current video, and hovering any video thumbnail anywhere on YouTube gives you the same toggle for that video. Both detect membership first, so they show whether the video is already saved before you click. Hovering the watch-page button reveals quick links to the Watch Later playlist, the Subscriptions feed and History; the playlist and Subscriptions pages each get tiles for the other two, and every other YouTube page gets Playlist and Subscriptions.
+Chrome extension for Watch Later. A button top-right of every YouTube watch page adds or removes the current video, and hovering any video thumbnail anywhere on YouTube gives you the same toggle for that video. Both detect membership first, so they show whether the video is already saved before you click. Hovering the watch-page button reveals quick links to the Watch Later playlist, the Subscriptions feed and History; the playlist and Subscriptions pages each get tiles for the other two, the home page gets all three, and every other YouTube page gets Playlist and Subscriptions. Each tile carries its own icon.
 
 ## Install
 
@@ -15,7 +15,7 @@ Chrome extension for Watch Later. A button top-right of every YouTube watch page
 - Toggle: `POST /youtubei/v1/browse/edit_playlist` with `ACTION_ADD_VIDEO` / `ACTION_REMOVE_VIDEO_BY_VIDEO_ID` against playlist `WL`
 - Auth: the page's own cookies plus a `SAPISIDHASH` Authorization header; API key and client context read from `window.ytcfg`
 - SPA-aware: re-rendered on every `yt-navigate-finish` event; hidden when logged out
-- Page-aware: on a watch page hovering the button drops down three same-sized link tiles - Playlist, Subscriptions, History. On the Watch Later playlist and the Subscriptions feed there is no video to toggle, so the widget is just the tiles for the other two pages, always visible. Everywhere else - home, channels, search, Shorts, History itself - Playlist and Subscriptions show at once, with no hover needed. Embedded players are the one exception and get nothing
+- Page-aware: on a watch page hovering the button drops down three same-sized link tiles - Playlist, Subscriptions, History. On the Watch Later playlist and the Subscriptions feed there is no video to toggle, so the widget is just the tiles for the other two pages, always visible. The home page shows all three at once. Everywhere else - channels, search, Shorts, History itself - Playlist and Subscriptions show at once, with no hover needed. Each tile has a distinct icon (a queue for Playlist, stacked screens for Subscriptions, a rewind clock for History), drawn as inline SVG node by node because YouTube's Trusted Types policy rejects `innerHTML`. Embedded players are the one exception and get nothing
 - The tiles are real anchors, so middle-click and ctrl-click open them in a new tab
 - Card buttons: one button follows the pointer from thumbnail to thumbnail rather than one being injected into every card. It is fixed-position and lives outside `ytd-app`, so YouTube reshuffling its renderers cannot break it, nothing needs re-decorating when cards are recycled on scroll, and it paints over the inline preview player by z-index alone
 - Thumbnails are found by href (`a[href*="/watch?v="]`) rather than renderer tag name, so both YouTube markup generations work - the older `ytd-thumbnail` and the newer `yt-lockup-view-model`. An image test and a size floor separate a real thumbnail from the title link beside it and from the invisible description links that also wrap an image. A link that wraps another watch link is skipped too: the playlist panel beside a watch page wraps each whole row, drag handle included, in one, and matching it put the cover over the handle
@@ -50,6 +50,7 @@ It is drawn as a gradient rather than a flat fill so the preview underneath stay
 | `/watch` | toggle button; hover reveals `Playlist`, `Subscriptions`, `History` |
 | `/playlist?list=WL` | `Subscriptions` and `History` |
 | `/feed/subscriptions` | `Playlist` and `History` |
+| `/` (home) | `Playlist`, `Subscriptions` and `History` |
 | any other page | `Playlist` and `Subscriptions`, both always visible |
 | `/embed/*` | nothing |
 
