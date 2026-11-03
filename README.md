@@ -2,6 +2,11 @@
 
 Chrome extension that adds one-click Watch Later toggles to YouTube - a button on watch pages and a hover button on every video thumbnail - plus quick links to Watch Later, Subscriptions and History.
 
+<p>
+  <img src="docs/watch-widget.png" alt="Watch-page button showing 'In Watch Later', with the Playlist, Subscriptions and History tiles revealed below it" height="200">
+  <img src="docs/card-button.png" alt="Thumbnail hover button on a saved video, covering the top-left quarter and leaving the scrub bar clear" height="200">
+</p>
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**
