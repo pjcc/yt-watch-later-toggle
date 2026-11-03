@@ -9,24 +9,42 @@
   const LINKS_ID = 'wl-toggle-links';
   const CARD_BTN_ID = 'wl-card-btn';
 
-  // The button covers the left half of the thumbnail, full height. A small
+  // On small thumbnails the button covers the left half, full height. A small
   // corner target was too easy to lose against a playing preview; this stays
   // findable without hunting, and keeps clear of the mute and captions controls
   // the preview player puts top-right.
   const CARD_COVER = 0.5;
+  // Large thumbnails (feed and search grids, 426x251 on the subscriptions feed
+  // at desktop width) get only the top-left quarter instead: their preview
+  // player has a scrub bar along the bottom edge, and a full-height button
+  // covered the left half of it. The cut-off sits well above the watch-page
+  // sidebar and playlist panel (100x56 measured in the panel), where a quarter
+  // would be too small to hit, and below the grid cards.
+  const CARD_LARGE_H = 120;
   // Floor for what counts as a thumbnail. YouTube's smallest real one is about
   // 100x56 in the compact sidebar, and nothing legitimate is under this.
   const CARD_MIN_W = 80;
   const CARD_MIN_H = 45;
 
-  const LINK_PLAYLIST = { href: 'https://www.youtube.com/playlist?list=WL', text: 'Playlist' };
-  const LINK_SUBS = { href: 'https://www.youtube.com/feed/subscriptions', text: 'Subscriptions' };
+  const LINK_PLAYLIST = { href: `${ORIGIN}/playlist?list=WL`, text: 'Playlist' };
+  const LINK_SUBS = { href: `${ORIGIN}/feed/subscriptions`, text: 'Subscriptions' };
+  const LINK_HISTORY = { href: `${ORIGIN}/feed/history`, text: 'History' };
 
   // The three pages with a bespoke widget, plus the catch-all everywhere else.
   const WATCH = 'watch';
   const SUBS = 'subs';
   const WL_PAGE = 'wl';
   const OTHER = 'other';
+
+  // The tiles each mode shows, top to bottom. A page never links to itself.
+  // The catch-all keeps to Playlist and Subscriptions, which also covers the
+  // History page without it offering a link back to itself.
+  const MODE_LINKS = {
+    [WATCH]: [LINK_PLAYLIST, LINK_SUBS, LINK_HISTORY],
+    [SUBS]: [LINK_PLAYLIST, LINK_HISTORY],
+    [WL_PAGE]: [LINK_SUBS, LINK_HISTORY],
+    [OTHER]: [LINK_PLAYLIST, LINK_SUBS],
+  };
 
   // Watch Later can be long, so the id set is cached rather than re-listed on
   // every SPA navigation; toggles patch the cache so it stays correct in between.
@@ -35,7 +53,10 @@
   // watch page is a single button; across a grid of forty cards it is obvious.
   const WL_MAX_PAGES = 50; // ~5000 videos, then we stop paging
 
-  let inFlight = false;
+  // Video ids with an edit in flight, shared by both buttons. Without it a
+  // double-click fired an add and a remove together, which can land in either
+  // order and leave the button saying the opposite of the playlist.
+  const pending = new Set();
   let refreshSeq = 0;
   let wlIds = null;
   let wlIdsAt = 0;
@@ -77,6 +98,8 @@
     const m = document.cookie.match(/(?:^|;\s*)(?:SAPISID|__Secure-3PAPISID)=([^;\s]+)/);
     return m ? m[1] : null;
   };
+
+  const hasSession = () => cfg('LOGGED_IN') !== false && !!getSapisid();
 
   const sha1Hex = async (str) => {
     const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(str));
@@ -155,8 +178,13 @@
     return ids;
   };
 
+  // The cached set if it is still inside its TTL, else null. Callers with a
+  // synchronous fast path use this to skip a loading state that would flicker.
+  const freshIds = () => (wlIds && Date.now() - wlIdsAt < WL_CACHE_TTL ? wlIds : null);
+
   const watchLaterIds = () => {
-    if (wlIds && Date.now() - wlIdsAt < WL_CACHE_TTL) return Promise.resolve(wlIds);
+    const cached = freshIds();
+    if (cached) return Promise.resolve(cached);
     if (!wlIdsPromise) {
       wlIdsPromise = listWatchLaterIds()
         .then((ids) => {
@@ -180,15 +208,26 @@
     return wlIdsPromise;
   };
 
-  const editWatchLater = (videoId, add) =>
-    innertube('browse/edit_playlist', {
-      playlistId: 'WL',
-      actions: [
-        add
-          ? { action: 'ACTION_ADD_VIDEO', addedVideoId: videoId }
-          : { action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID', removedVideoId: videoId },
-      ],
-    });
+  // Both buttons edit through here, so the in-flight guard and the cache patch
+  // cannot drift apart between them. The patch keeps the cache correct without
+  // a re-list, and runs whatever the UI has done since - the edit landed, so
+  // the next button to ask about this video should hear about it.
+  const editWatchLater = async (videoId, add) => {
+    pending.add(videoId);
+    try {
+      await innertube('browse/edit_playlist', {
+        playlistId: 'WL',
+        actions: [
+          add
+            ? { action: 'ACTION_ADD_VIDEO', addedVideoId: videoId }
+            : { action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID', removedVideoId: videoId },
+        ],
+      });
+      if (wlIds) add ? wlIds.add(videoId) : wlIds.delete(videoId);
+    } finally {
+      pending.delete(videoId);
+    }
+  };
 
   // ---------- widget ----------
 
@@ -206,40 +245,30 @@
     return a;
   };
 
-  // On a watch page the widget is the toggle button, with both links in an
+  // On a watch page the widget is the toggle button, with its links in an
   // absolutely positioned strip revealed on hover - so the collapsed widget
-  // covers no more of the page than the button itself. On the Watch Later
-  // playlist and the Subscriptions feed there is no video to toggle, so it is
-  // just the one always-visible tile pointing at the other page. Everywhere
-  // else both tiles show at once: there is nothing to toggle and no button to
-  // hover, so hiding them behind a reveal would leave nothing to aim at.
+  // covers no more of the page than the button itself. Everywhere else there
+  // is nothing to toggle and no button to hover, so the tiles are always
+  // visible: hiding them behind a reveal would leave nothing to aim at.
+  // MODE_LINKS decides which tiles each mode gets.
   const build = (mode) => {
     const wrap = document.createElement('div');
     wrap.id = WRAP_ID;
     wrap.dataset.mode = mode;
+    const tiles = MODE_LINKS[mode].map(makeLink);
 
     if (mode === WATCH) {
       const btn = document.createElement('button');
       btn.id = BTN_ID;
       btn.type = 'button';
       btn.addEventListener('click', onClick);
-      wrap.appendChild(btn);
 
       const links = document.createElement('div');
       links.id = LINKS_ID;
-      links.append(makeLink(LINK_PLAYLIST), makeLink(LINK_SUBS));
-      wrap.appendChild(links);
-    } else if (mode === SUBS) {
-      // 'WL Playlist' here, not just 'Playlist': with no toggle button above it
-      // for context, the bare label does not say which playlist it means.
-      wrap.appendChild(makeLink({ ...LINK_PLAYLIST, text: 'WL Playlist' }));
-    } else if (mode === WL_PAGE) {
-      wrap.appendChild(makeLink(LINK_SUBS));
+      links.append(...tiles);
+      wrap.append(btn, links);
     } else {
-      wrap.append(
-        makeLink({ ...LINK_PLAYLIST, text: 'WL Playlist' }),
-        makeLink(LINK_SUBS),
-      );
+      wrap.append(...tiles);
     }
 
     document.documentElement.appendChild(wrap);
@@ -261,62 +290,68 @@
   // A toggle that resolves after the user has navigated away must not drag the
   // button back onto the new page: mount(WATCH) would rebuild it over a
   // link-only page's tile, or unhide it on a page the widget never belongs on.
-  const setState = (state, text) => {
+  //
+  // `saved` is the settled membership a click toggles away from, kept in
+  // data-saved rather than read off data-state. Reading the state made a click
+  // during 'loading' always add, and a click on 'Failed - try again' after a
+  // failed remove add as well; the error flash now carries the membership it
+  // reverted to, so retrying repeats the edit that failed. States with no
+  // settled membership ('loading', 'retry') leave it unset and clicks ignore them.
+  const setState = (state, text, saved) => {
     if (getPage() !== WATCH) return;
     mount(WATCH);
     const btn = document.getElementById(BTN_ID);
     btn.dataset.state = state;
     btn.textContent = text;
+    if (saved === undefined) delete btn.dataset.saved;
+    else btn.dataset.saved = String(saved);
   };
 
   const render = (inWL) =>
-    setState(inWL ? 'in' : 'out', inWL ? '✓ In Watch Later' : '+ Watch Later');
+    setState(inWL ? 'in' : 'out', inWL ? '✓ In Watch Later' : '+ Watch Later', inWL);
 
   const hide = () => {
     const wrap = document.getElementById(WRAP_ID);
     if (wrap) wrap.hidden = true;
   };
 
-  const flashError = () => {
+  const flashError = (revertTo) => {
     // No button once setState has declined to rebuild it off a watch page.
-    const btn = document.getElementById(BTN_ID);
-    if (!btn) return;
-    const prev = { state: btn.dataset.state, text: btn.textContent };
-    setState('error', 'Failed - try again');
+    if (!document.getElementById(BTN_ID)) return;
+    setState('error', 'Failed - try again', revertTo);
     setTimeout(() => {
       const b = document.getElementById(BTN_ID);
-      if (b && b.dataset.state === 'error') setState(prev.state, prev.text);
+      if (b && b.dataset.state === 'error') render(revertTo);
     }, 2000);
   };
 
   // ---------- actions ----------
 
   async function onClick() {
-    if (inFlight) return;
     const videoId = getVideoId();
-    if (!videoId) return;
-
     const btn = document.getElementById(BTN_ID);
+    if (!videoId || !btn) return;
     if (btn.dataset.state === 'retry') return refresh();
+    if (btn.dataset.saved === undefined || pending.has(videoId)) return;
 
-    const wasIn = btn.dataset.state === 'in';
-    inFlight = true;
+    const wasIn = btn.dataset.saved === 'true';
     render(!wasIn); // optimistic
     try {
       await editWatchLater(videoId, !wasIn);
-      if (wlIds) wasIn ? wlIds.delete(videoId) : wlIds.add(videoId);
+      syncButtons(videoId, !wasIn);
     } catch (err) {
       console.warn('[wl-toggle] edit failed:', err);
       // Same guard as refresh(): a failure that lands after the user has moved
       // on must not write video A's state onto video B's button.
-      if (getVideoId() === videoId) {
-        render(wasIn); // revert
-        flashError();
-      }
-    } finally {
-      inFlight = false;
+      if (getVideoId() === videoId) flashError(wasIn);
     }
   }
+
+  // Keep the two buttons agreeing when they are showing the same video.
+  const syncButtons = (videoId, inWL) => {
+    if (getVideoId() === videoId) render(inWL);
+    if (cardVideoId === videoId) renderCard(inWL);
+  };
 
   async function refresh() {
     const page = getPage();
@@ -331,11 +366,18 @@
     }
 
     const videoId = getVideoId();
-    if (!videoId || cfg('LOGGED_IN') === false || !getSapisid()) {
+    if (!videoId || !hasSession()) {
       hide();
       return;
     }
     const seq = ++refreshSeq;
+    // Same fast path as the card button: with a warm cache, skip the loading
+    // state that otherwise flickered on every SPA navigation between videos.
+    const cached = freshIds();
+    if (cached) {
+      render(cached.has(videoId));
+      return;
+    }
     setState('loading', 'Watch Later…');
     try {
       const ids = await watchLaterIds();
@@ -373,10 +415,19 @@
   // (ytAttributedStringLink) wrap an img, and collapsed sidebar thumbnails keep
   // theirs in the DOM at zero size. Measuring is the only thing that separates a
   // thumbnail you can point at from markup that merely looks like one.
+  //
+  // An anchor that wraps another watch anchor is a whole row, not a thumbnail.
+  // The playlist panel beside a watch page does this: a#wc-endpoint (492x56)
+  // wraps the row, a#thumbnail (100x56) inside it. Hovering the thumbnail
+  // matched the inner one and hovering the title matched the row - which
+  // passes the image test via the thumbnail inside it - so the cover flipped
+  // between thumbnail-sized and half the row. Hovering a title elsewhere shows
+  // no button, so the row anchor is rejected rather than resolved downwards.
   const thumbAnchor = (target) => {
     if (!(target instanceof Element)) return null;
     const a = target.closest('a[href*="/watch?v="]');
     if (!a) return null;
+    if (a.querySelector('a[href*="/watch?v="]')) return null;
     if (a.id !== 'thumbnail' && !a.querySelector('img, yt-image, ytd-thumbnail')) return null;
     const rect = a.getBoundingClientRect();
     if (rect.width < CARD_MIN_W || rect.height < CARD_MIN_H) return null;
@@ -414,11 +465,14 @@
       // Keep the last good rect rather than throwing the button away over it.
       if (live.width && live.height) cardRect = live;
     }
+    const large = cardRect.height >= CARD_LARGE_H;
+    const height = cardRect.height * (large ? CARD_COVER : 1);
+    btn.dataset.size = large ? 'large' : 'small';
     btn.style.top = `${cardRect.top}px`;
     btn.style.left = `${cardRect.left}px`;
     btn.style.width = `${Math.round(cardRect.width * CARD_COVER)}px`;
-    btn.style.height = `${Math.round(cardRect.height)}px`;
-    btn.style.fontSize = `${Math.max(18, Math.round(cardRect.height * 0.3))}px`;
+    btn.style.height = `${Math.round(height)}px`;
+    btn.style.fontSize = `${Math.max(18, Math.round(height * 0.3))}px`;
   };
 
   const withinCard = (x, y) =>
@@ -426,8 +480,9 @@
     x >= cardRect.left && x <= cardRect.right &&
     y >= cardRect.top && y <= cardRect.bottom;
 
+  // Scroll fires constantly; with no card showing there is nothing to place.
   const queuePlace = () => {
-    if (cardFrame) return;
+    if (cardFrame || !cardRect) return;
     cardFrame = requestAnimationFrame(() => {
       cardFrame = 0;
       placeCard();
@@ -446,21 +501,24 @@
     cardSeq++;
   };
 
-  const setCardState = (state, label, title) => {
+  // `saved` works exactly as it does for the watch-page button's setState.
+  const setCardState = (state, label, title, saved) => {
     const btn = document.getElementById(CARD_BTN_ID);
     if (!btn) return;
     btn.dataset.state = state;
     btn.textContent = label;
     btn.title = title;
+    if (saved === undefined) delete btn.dataset.saved;
+    else btn.dataset.saved = String(saved);
   };
 
   const renderCard = (inWL) =>
     inWL
-      ? setCardState('in', '\u2713', 'In Watch Later - click to remove')
-      : setCardState('out', '+', 'Add to Watch Later');
+      ? setCardState('in', '\u2713', 'In Watch Later - click to remove', true)
+      : setCardState('out', '+', 'Add to Watch Later', false);
 
   const flashCardError = (revertTo) => {
-    setCardState('error', '!', 'Failed - try again');
+    setCardState('error', '!', 'Failed - try again', revertTo);
     setTimeout(() => {
       const btn = document.getElementById(CARD_BTN_ID);
       if (btn && btn.dataset.state === 'error') renderCard(revertTo);
@@ -471,7 +529,7 @@
     const videoId = idFromHref(anchor.href);
     // Same three preconditions as the watch button: a video, a session, and a
     // page the widget belongs on (getPage() is null only inside an embed).
-    if (!videoId || !getPage() || cfg('LOGGED_IN') === false || !getSapisid()) {
+    if (!videoId || !getPage() || !hasSession()) {
       hideCard();
       return;
     }
@@ -485,8 +543,9 @@
 
     // A warm cache is the normal case, and answering synchronously avoids a
     // loading state that would flicker on every card the pointer crosses.
-    if (wlIds && Date.now() - wlIdsAt < WL_CACHE_TTL) {
-      renderCard(wlIds.has(videoId));
+    const cached = freshIds();
+    if (cached) {
+      renderCard(cached.has(videoId));
       return;
     }
     setCardState('loading', '\u2026', 'Checking Watch Later\u2026');
@@ -506,23 +565,18 @@
     const videoId = cardVideoId;
     const anchor = cardAnchor;
     if (!btn || !videoId || !anchor) return;
-    if (btn.dataset.state === 'loading') return;
     if (btn.dataset.state === 'retry') return onCardEnter(anchor);
+    if (btn.dataset.saved === undefined || pending.has(videoId)) return;
 
-    const wasIn = btn.dataset.state === 'in';
+    const wasIn = btn.dataset.saved === 'true';
     const seq = cardSeq;
     renderCard(!wasIn); // optimistic
     try {
       await editWatchLater(videoId, !wasIn);
-      // Patch the cache whatever the pointer has done since - the edit landed,
-      // and the next card to ask about this video should hear about it.
-      if (wlIds) wasIn ? wlIds.delete(videoId) : wlIds.add(videoId);
-      // Keep the two buttons agreeing when they are showing the same video.
-      if (getVideoId() === videoId) render(!wasIn);
+      syncButtons(videoId, !wasIn);
     } catch (err) {
       console.warn('[wl-toggle] card edit failed:', err);
       if (seq !== cardSeq) return; // pointer moved on, nothing left to revert
-      renderCard(wasIn);
       flashCardError(wasIn);
     }
   }

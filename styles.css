@@ -4,18 +4,20 @@
   right: 16px;
   z-index: 10000;
   width: 152px;
-}
-
-#wl-toggle-wrap[hidden] {
-  display: none;
-}
-
-/* Off the three bespoke pages both tiles show at once, stacked on the same 6px
-   rhythm the watch page's hover strip uses. */
-#wl-toggle-wrap[data-mode="other"] {
+  /* Off a watch page the tiles stack here, on the same 6px rhythm the watch
+     page's hover strip uses. On a watch page the strip is absolutely
+     positioned, so the button is the only flex item and this changes nothing. */
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Must out-rank every rule that sets display on the wrap. The flex rule used to
+   be a [data-mode] selector of equal specificity declared after this one, so a
+   hidden catch-all widget stayed visible - a logged-out watch page reached by
+   SPA navigation kept the tiles from the previous page. */
+#wl-toggle-wrap[hidden] {
+  display: none;
 }
 
 /* The button and the two link tiles share one look and one width. */
@@ -133,6 +135,10 @@
   border: none;
   /* Matches the 12px corner radius YouTube gives its thumbnails. */
   border-radius: 12px 0 0 12px;
+  /* Fades away from the corner it is anchored to: rightwards for the full-height
+     half, diagonally for the large-thumbnail quarter, so neither ends in a hard
+     edge over the preview. */
+  --wl-fade: to right;
   font-family: "Roboto", "Arial", sans-serif;
   font-weight: 500;
   line-height: 1;
@@ -140,7 +146,7 @@
   color: #fff;
   /* A gradient rather than a flat fill: the button covers half the thumbnail,
      so the preview underneath has to stay watchable through it. */
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+  background: linear-gradient(var(--wl-fade), rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
   transition: background 0.15s ease;
 }
@@ -149,17 +155,24 @@
   display: none;
 }
 
+/* Top-left quarter only, leaving the preview's bottom scrub bar reachable all
+   the way across. data-size is set in placeCard() from the thumbnail height. */
+#wl-card-btn[data-size="large"] {
+  border-radius: 12px 0 0 0;
+  --wl-fade: to bottom right;
+}
+
 #wl-card-btn:hover {
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.08));
+  background: linear-gradient(var(--wl-fade), rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.08));
 }
 
 /* Same state colours as the watch-page button, so the two read as one thing. */
 #wl-card-btn[data-state="in"] {
-  background: linear-gradient(to right, rgba(43, 166, 64, 0.85), rgba(43, 166, 64, 0));
+  background: linear-gradient(var(--wl-fade), rgba(43, 166, 64, 0.85), rgba(43, 166, 64, 0));
 }
 
 #wl-card-btn[data-state="in"]:hover {
-  background: linear-gradient(to right, rgba(36, 144, 56, 0.95), rgba(36, 144, 56, 0.1));
+  background: linear-gradient(var(--wl-fade), rgba(36, 144, 56, 0.95), rgba(36, 144, 56, 0.1));
 }
 
 #wl-card-btn[data-state="loading"] {
@@ -168,7 +181,7 @@
 }
 
 #wl-card-btn[data-state="error"] {
-  background: linear-gradient(to right, rgba(204, 0, 0, 0.88), rgba(204, 0, 0, 0));
+  background: linear-gradient(var(--wl-fade), rgba(204, 0, 0, 0.88), rgba(204, 0, 0, 0));
 }
 
 #wl-card-btn[data-state="retry"] {
